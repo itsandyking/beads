@@ -254,6 +254,98 @@ func TestRenderPrimeMemoriesFocusDecidesWhatSurvivesACap(t *testing.T) {
 	}
 }
 
+// stubFocus isolates the focus globals for one test.
+func stubFocus(t *testing.T, focus, branch string) {
+	t.Helper()
+	oldFocus, oldBranch := primeFocus, primeCurrentGitBranch
+	t.Cleanup(func() {
+		primeFocus, primeCurrentGitBranch = oldFocus, oldBranch
+	})
+	primeFocus = focus
+	primeCurrentGitBranch = func() string { return branch }
+}
+
+func TestResolvePrimeFocusPassesThroughLiteralText(t *testing.T) {
+	stubFocus(t, "fix the vision pipeline", "some-branch")
+
+	if got := resolvePrimeFocus(); got != "fix the vision pipeline" {
+		t.Fatalf("literal focus should pass through untouched, got %q", got)
+	}
+}
+
+func TestResolvePrimeFocusAutoUsesBranch(t *testing.T) {
+	stubFocus(t, "auto", "bd-a3f8-fix-vision-pipeline")
+	if got := resolvePrimeFocus(); got != "bd-a3f8-fix-vision-pipeline" {
+		t.Fatalf("auto should resolve to the branch name, got %q", got)
+	}
+
+	// Case-insensitive, since it comes off a command line.
+	stubFocus(t, "  AUTO ", "feature/colorway-binding")
+	if got := resolvePrimeFocus(); got != "feature/colorway-binding" {
+		t.Fatalf("auto should be recognized case-insensitively, got %q", got)
+	}
+}
+
+// auto must never be worse than omitting the flag: no branch means no focus,
+// which is the alphabetical default.
+func TestResolvePrimeFocusAutoFallsBackWhenBranchUnknown(t *testing.T) {
+	stubFocus(t, "auto", "")
+
+	if got := resolvePrimeFocus(); got != "" {
+		t.Fatalf("an undeterminable branch must resolve to no focus, got %q", got)
+	}
+}
+
+func TestResolvePrimeFocusEmptyStaysEmpty(t *testing.T) {
+	stubFocus(t, "", "some-branch")
+
+	if got := resolvePrimeFocus(); got != "" {
+		t.Fatalf("no --focus must not silently pick up the branch, got %q", got)
+	}
+}
+
+// stubPrimeWarn captures the operator notice for one test.
+func stubPrimeWarn(t *testing.T) *[]string {
+	t.Helper()
+	old := primeWarnf
+	captured := &[]string{}
+	t.Cleanup(func() { primeWarnf = old })
+	primeWarnf = func(format string, args ...interface{}) {
+		*captured = append(*captured, fmt.Sprintf(format, args...))
+	}
+	return captured
+}
+
+func TestWarnIfMemoriesUncappedFiresOnlyWhenLargeAndUncapped(t *testing.T) {
+	big := map[string]string{"huge": strings.Repeat("x", primeMemoryAdvisoryThreshold+1)}
+	small := map[string]string{"tiny": "short"}
+
+	got := stubPrimeWarn(t)
+	warnIfMemoriesUncapped(big, 0, 0)
+	if len(*got) != 1 {
+		t.Fatalf("a large uncapped memory set should warn once, got %v", *got)
+	}
+	if !strings.Contains((*got)[0], "no cap set") || !strings.Contains((*got)[0], "--max-memory-chars") {
+		t.Fatalf("notice should name the problem and the fix, got %q", (*got)[0])
+	}
+
+	// A cap of either kind silences it — the operator has already decided.
+	for _, caps := range [][2]int{{5, 0}, {0, 1000}, {5, 1000}} {
+		got := stubPrimeWarn(t)
+		warnIfMemoriesUncapped(big, caps[0], caps[1])
+		if len(*got) != 0 {
+			t.Fatalf("caps %v should silence the notice, got %v", caps, *got)
+		}
+	}
+
+	// Small sets never warn.
+	got = stubPrimeWarn(t)
+	warnIfMemoriesUncapped(small, 0, 0)
+	if len(*got) != 0 {
+		t.Fatalf("a small memory set should not warn, got %v", *got)
+	}
+}
+
 func TestPrimeFocusNoteTruncatesLongFocus(t *testing.T) {
 	if got := primeFocusNote("   "); got != "" {
 		t.Fatalf("blank focus should produce no note, got %q", got)

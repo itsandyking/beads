@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
+	internalbeads "github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
 )
 
@@ -201,6 +204,76 @@ func focusTokens(focus string) map[string]struct{} {
 		tokens[field] = struct{}{}
 	}
 	return tokens
+}
+
+// focusAuto asks prime to derive the focus from the current git branch.
+const focusAuto = "auto"
+
+// primeCurrentGitBranch returns the checked-out branch name, or "" when it
+// cannot be determined (detached HEAD, no repo). Stubbable for tests.
+var primeCurrentGitBranch = func() string {
+	rc, err := internalbeads.GetRepoContext()
+	if err != nil {
+		return ""
+	}
+	out, err := rc.GitCmdCWD(context.Background(), "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" { // detached
+		return ""
+	}
+	return branch
+}
+
+// resolvePrimeFocus returns the focus text to order memories by. The literal
+// "auto" resolves to the current git branch, which is free signal in the
+// worktree-per-issue layouts that agent loops use — branches there are named
+// after the work. An undeterminable branch resolves to no focus, which is the
+// alphabetical default, so auto is never worse than not passing it.
+func resolvePrimeFocus() string {
+	if strings.EqualFold(strings.TrimSpace(primeFocus), focusAuto) {
+		return primeCurrentGitBranch()
+	}
+	return primeFocus
+}
+
+// primeMemoryAdvisoryThreshold is the point past which an uncapped memory
+// section is worth mentioning. Chosen to sit above a handful of ordinary
+// memories and below the sets that dominate a session-start injection.
+const primeMemoryAdvisoryThreshold = 8000
+
+// primeWarnf writes an operator-facing notice. It goes to stderr on purpose:
+// hook payloads are read from stdout, so this can never enter the very context
+// budget it is warning about. Stubbable for tests.
+var primeWarnf = func(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, format, args...)
+}
+
+// warnIfMemoriesUncapped tells the operator when prime is about to inject a
+// large memory section with no cap set.
+//
+// Deliberately a notice and not a default cap: a default would silently change
+// what every existing workspace injects, and beads cannot know which of a
+// host's memories are load-bearing. The failure mode being warned about is
+// real but quiet — hosts truncate an oversized session-start payload without
+// saying so — so the fix is to make the size visible, not to guess a number on
+// the user's behalf.
+func warnIfMemoriesUncapped(memories map[string]string, maxCount, maxChars int) {
+	if maxCount > 0 || maxChars > 0 {
+		return
+	}
+	total := 0
+	for k, v := range memories {
+		total += len(k) + len(v)
+	}
+	if total <= primeMemoryAdvisoryThreshold {
+		return
+	}
+	primeWarnf("[bd prime] injecting %d memories (~%d bytes) with no cap set; hosts truncate silently. "+
+		"Cap with --max-memory-chars N (or the prime.max-memory-chars config key), and pass --focus \"<task>\" "+
+		"or --focus auto so the cap keeps what bears on the work.\n", len(memories), total)
 }
 
 // primeFocusNote describes an active focus for the elision banner, so a capped

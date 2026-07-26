@@ -126,10 +126,18 @@ Memory injection caps:
 	the section header and elision banner are excluded from the budget.
 
 	Memories are emitted alphabetically. Pass --focus "<text>" — an active
-	issue's title, a branch name, the task at hand — to emit them by relevance
-	to that text instead. Ordering only shows when a cap is binding, which is
-	exactly when it matters: alphabetical order keeps whichever memories happen
-	to sort first, not the ones bearing on the work.
+	issue's title, the task at hand — to emit them by relevance to that text
+	instead. Ordering only shows when a cap is binding, which is exactly when
+	it matters: alphabetical order keeps whichever memories happen to sort
+	first, not the ones bearing on the work. --focus auto uses the current git
+	branch name, which is free signal in worktree-per-issue layouts; an
+	undeterminable branch falls back to alphabetical, so auto is never worse
+	than omitting it.
+
+	Caps stay off by default — beads cannot know which of your memories are
+	load-bearing, and a default would change what every existing workspace
+	injects. Instead, an uncapped memory section past ~8KB prints a notice on
+	stderr (never stdout, so it cannot enter the payload it is warning about).
 
 Host policy:
 	Two of the sections prime injects describe how the host should run a
@@ -250,7 +258,7 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeHookJSONMode, "hook-json", false, "Wrap output in the SessionStart hook JSON envelope (Claude Code, Gemini CLI, Codex)")
 	primeCmd.Flags().IntVar(&primeMaxMemories, "max-memories", 0, "Cap injected persistent memories to N entries (0 = unlimited; falls back to the prime.max-memories config key)")
 	primeCmd.Flags().IntVar(&primeMaxMemoryChars, "max-memory-chars", 0, "Cap the total bytes of injected memory entries, at whole-memory boundaries; section header and banner are not counted (0 = unlimited; falls back to the prime.max-memory-chars config key)")
-	primeCmd.Flags().StringVar(&primeFocus, "focus", "", "Order injected memories by relevance to this text (e.g. the active issue's title or the branch name) instead of alphabetically; decides what survives a cap")
+	primeCmd.Flags().StringVar(&primeFocus, "focus", "", "Order injected memories by relevance to this text (e.g. the active issue's title) instead of alphabetically; decides what survives a cap. Pass \"auto\" to use the current git branch name")
 	primeCmd.Flags().StringVar(&primeSessionClose, "session-close", "", "Session-close protocol verbosity: full, brief, or off (default full; falls back to the prime.session-close config key)")
 	primeCmd.Flags().StringVar(&primeCoreRules, "core-rules", "", "Register for the task-tracking rules: directive or advisory (default directive; falls back to the prime.core-rules config key)")
 	rootCmd.AddCommand(primeCmd)
@@ -489,7 +497,8 @@ func formatMemoriesForPrime(compact bool) string {
 		return ""
 	}
 	maxCount, maxChars := primeMemoryCaps()
-	return renderPrimeMemories(memories, compact, maxCount, maxChars, primeFocus)
+	warnIfMemoriesUncapped(memories, maxCount, maxChars)
+	return renderPrimeMemories(memories, compact, maxCount, maxChars, resolvePrimeFocus())
 }
 
 // primeConfigInt reads an integer config key (stubbable for tests).

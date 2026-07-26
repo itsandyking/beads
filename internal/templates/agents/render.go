@@ -15,7 +15,13 @@ type Profile string
 const (
 	// ProfileFull is the command-heavy profile for hookless agents (Codex, Factory, Mux, etc.).
 	ProfileFull Profile = "full"
-	// ProfileMinimal is the pointer-only profile for hook-enabled agents (Claude, Gemini).
+	// ProfileMinimal is the quick-reference profile for hook-enabled agents
+	// (Claude, Gemini): a pointer to `bd prime` plus a command crib, the policy
+	// profiles, and a session-completion protocol. Roughly 2.7KB — leaner than
+	// full, but not the pointer it is sometimes described as. Its content is
+	// deliberately left alone: workspaces depend on what it says today. Hosts
+	// that want less should ask for ProfilePointer rather than have this shrink
+	// under them.
 	ProfileMinimal Profile = "minimal"
 	// ProfilePointer is the smallest profile: what bd is, the five commands that
 	// matter, and when to reach for it. It carries no session-close protocol and
