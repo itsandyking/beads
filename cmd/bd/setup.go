@@ -12,6 +12,7 @@ import (
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/metrics"
 	"github.com/steveyegge/beads/internal/recipes"
+	"github.com/steveyegge/beads/internal/templates/agents"
 )
 
 var (
@@ -24,6 +25,7 @@ var (
 	setupOutput  string
 	setupList    bool
 	setupAdd     string
+	setupProfile string
 )
 
 var setupCmd = &cobra.Command{
@@ -64,6 +66,14 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			c.CloseEventAndAdd(evt)
 		}
 	}()
+
+	if setupProfile != "" {
+		p, err := agents.ParseProfile(setupProfile)
+		if err != nil {
+			return HandleErrorWithHint(err.Error(), "Valid profiles: full (command-heavy), minimal (quick reference), pointer (smallest)")
+		}
+		setup.SetProfileOverride(p)
+	}
 
 	if setupList {
 		return listRecipes()
@@ -429,6 +439,7 @@ func init() {
 	setupCmd.Flags().BoolVar(&setupProject, "project", false, "Install for this project only (gemini/mux)")
 	setupCmd.Flags().BoolVar(&setupGlobal, "global", false, "Install globally (claude/codex/cursor/mux; writes to ~/.claude/settings.json, $CODEX_HOME/AGENTS.md or ~/.codex/AGENTS.md, ~/.cursor/hooks.json, or ~/.mux/AGENTS.md)")
 	setupCmd.Flags().BoolVar(&setupStealth, "stealth", false, "Use stealth mode (claude/gemini)")
+	setupCmd.Flags().StringVar(&setupProfile, "profile", "", "Override how much guidance the managed section carries: full, minimal, or pointer (default: the integration's own profile)")
 
 	rootCmd.AddCommand(setupCmd)
 }

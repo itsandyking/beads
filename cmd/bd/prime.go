@@ -32,6 +32,10 @@ var (
 	primeMaxMemoryChars    int
 	primeMaxMemoriesSet    bool
 	primeMaxMemoryCharsSet bool
+
+	primeFocus        string
+	primeSessionClose string
+	primeCoreRules    string
 )
 
 const (
@@ -119,7 +123,29 @@ Memory injection caps:
 	memory is always emitted, and a banner ahead of the entries reports how
 	many were elided and how to browse the rest with bd memories.
 	--max-memory-chars caps the total bytes of the injected memory entries;
-	the section header and elision banner are excluded from the budget.`,
+	the section header and elision banner are excluded from the budget.
+
+	Memories are emitted alphabetically. Pass --focus "<text>" — an active
+	issue's title, a branch name, the task at hand — to emit them by relevance
+	to that text instead. Ordering only shows when a cap is binding, which is
+	exactly when it matters: alphabetical order keeps whichever memories happen
+	to sort first, not the ones bearing on the work.
+
+Host policy:
+	Two of the sections prime injects describe how the host should run a
+	session rather than how beads works: the session-close protocol and the
+	rule against the host's own task-tracking tools. Where the host has no
+	such discipline of its own — a small local model, an older agent — those
+	sections carry their weight, and they stay on by default.
+
+	--session-close full|brief|off (or prime.session-close) sets how much of
+	the close protocol to emit. brief keeps the checklist and drops the
+	emphatic framing; off omits it for hosts that own session close outright.
+
+	--core-rules directive|advisory (or prime.core-rules) sets the register of
+	the task-tracking rules. directive is the historical text. advisory states
+	when work belongs in beads and leaves the choice of scratch tooling and
+	memory to the host, instead of prohibiting them.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -224,6 +250,9 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeHookJSONMode, "hook-json", false, "Wrap output in the SessionStart hook JSON envelope (Claude Code, Gemini CLI, Codex)")
 	primeCmd.Flags().IntVar(&primeMaxMemories, "max-memories", 0, "Cap injected persistent memories to N entries (0 = unlimited; falls back to the prime.max-memories config key)")
 	primeCmd.Flags().IntVar(&primeMaxMemoryChars, "max-memory-chars", 0, "Cap the total bytes of injected memory entries, at whole-memory boundaries; section header and banner are not counted (0 = unlimited; falls back to the prime.max-memory-chars config key)")
+	primeCmd.Flags().StringVar(&primeFocus, "focus", "", "Order injected memories by relevance to this text (e.g. the active issue's title or the branch name) instead of alphabetically; decides what survives a cap")
+	primeCmd.Flags().StringVar(&primeSessionClose, "session-close", "", "Session-close protocol verbosity: full, brief, or off (default full; falls back to the prime.session-close config key)")
+	primeCmd.Flags().StringVar(&primeCoreRules, "core-rules", "", "Register for the task-tracking rules: directive or advisory (default directive; falls back to the prime.core-rules config key)")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -460,7 +489,7 @@ func formatMemoriesForPrime(compact bool) string {
 		return ""
 	}
 	maxCount, maxChars := primeMemoryCaps()
-	return renderPrimeMemories(memories, compact, maxCount, maxChars)
+	return renderPrimeMemories(memories, compact, maxCount, maxChars, primeFocus)
 }
 
 // primeConfigInt reads an integer config key (stubbable for tests).
@@ -496,13 +525,13 @@ func primeMemoryCaps() (maxCount, maxChars int) {
 // banner are not counted against this budget). Both are 0 when uncapped.
 // Caps apply at whole-memory boundaries and at least one memory is always
 // emitted, so a single oversized memory can exceed maxChars rather than
-// vanish. Keys are emitted in sorted order (the memory store keeps no
-// timestamps, so alphabetical is the only stable order available); when
-// entries are elided a banner ahead of the entries says how many and how to
-// reach the rest, so a capped prime never silently drops context. The banner
-// names only the cap that actually fired.
-func renderPrimeMemories(memories map[string]string, compact bool, maxCount, maxChars int) string {
-	keys := sortedKeys(memories)
+// vanish. Keys are emitted alphabetically, or by relevance to focus when focus
+// is non-empty (see orderMemoryKeys) — which decides which memories survive a
+// cap. When entries are elided a banner ahead of the entries says how many and
+// how to reach the rest, so a capped prime never silently drops context. The
+// banner names only the cap that actually fired.
+func renderPrimeMemories(memories map[string]string, compact bool, maxCount, maxChars int, focus string) string {
+	keys := orderMemoryKeys(memories, focus)
 
 	entries := make([]string, 0, len(keys))
 	used := 0
@@ -540,19 +569,19 @@ func renderPrimeMemories(memories map[string]string, compact bool, maxCount, max
 	if compact {
 		if elided > 0 {
 			sb.WriteString(fmt.Sprintf("\n## Memories (showing %d of %d)\n", len(entries), len(keys)))
-			sb.WriteString(fmt.Sprintf("- %d more not shown (%s); browse with `bd memories <keyword>`\n", elided, primeMemoryCapNote(noteCount, noteChars)))
+			sb.WriteString(fmt.Sprintf("- %d more not shown (%s); browse with `bd memories <keyword>`\n", elided, primeMemoryElisionNote(noteCount, noteChars, focus)))
 		} else {
 			sb.WriteString("\n## Memories\n")
 		}
 	} else {
 		if elided > 0 {
-			sb.WriteString(fmt.Sprintf("\n## Persistent Memories (showing %d of %d, alphabetical)\n\n", len(entries), len(keys)))
+			sb.WriteString(fmt.Sprintf("\n## Persistent Memories (showing %d of %d, %s)\n\n", len(entries), len(keys), primeMemoryOrderLabel(focus)))
 		} else {
 			sb.WriteString(fmt.Sprintf("\n## Persistent Memories (%d)\n\n", len(keys)))
 		}
 		sb.WriteString("Stored via `bd remember`. Update in place with `bd remember --key <key> \"new content\"`. Search with `bd memories <keyword>`. Remove with `bd forget <key>`.\n\n")
 		if elided > 0 {
-			sb.WriteString(fmt.Sprintf("> %d more memories are not shown here (%s). Browse the full set with `bd memories <keyword>` or recall one with `bd remember <key>`.\n\n", elided, primeMemoryCapNote(noteCount, noteChars)))
+			sb.WriteString(fmt.Sprintf("> %d more memories are not shown here (%s). Browse the full set with `bd memories <keyword>` or recall one with `bd remember <key>`.\n\n", elided, primeMemoryElisionNote(noteCount, noteChars, focus)))
 		}
 	}
 	for _, entry := range entries {
@@ -571,6 +600,24 @@ func primeMemoryCapNote(maxCount, maxChars int) string {
 		parts = append(parts, fmt.Sprintf("max-memory-chars=%d", maxChars))
 	}
 	return "capped by " + strings.Join(parts, ", ")
+}
+
+// primeMemoryElisionNote names the active cap(s) and, when a focus is set, the
+// ordering that decided which memories survived it.
+func primeMemoryElisionNote(maxCount, maxChars int, focus string) string {
+	note := primeMemoryCapNote(maxCount, maxChars)
+	if fn := primeFocusNote(focus); fn != "" {
+		note += "; " + fn
+	}
+	return note
+}
+
+// primeMemoryOrderLabel names the emission order for the section header.
+func primeMemoryOrderLabel(focus string) string {
+	if strings.TrimSpace(focus) == "" {
+		return "alphabetical"
+	}
+	return "by relevance"
 }
 
 func formatPrimeMemoryTimeout(compact bool, timeout time.Duration) string {
@@ -645,15 +692,10 @@ func outputMCPContext(w io.Writer, stealthMode bool) error {
 		context += memories + "\n"
 	}
 
-	context += `# 🚨 SESSION CLOSE PROTOCOL 🚨
+	context += primeSessionCloseSection(closeProtocol, "", false)
 
-` + closeProtocol + `
-
-## Core Rules
-- **Default**: Use beads for ALL task tracking (` + "`bd create`" + `, ` + "`bd ready`" + `, ` + "`bd close`" + `)
-- **Prohibited**: Do NOT use TodoWrite, TaskCreate, or markdown files for task tracking
-- **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
-- **Memory**: Use ` + "`bd remember`" + ` for persistent knowledge. Do NOT use MEMORY.md files.
+	context += `## Core Rules
+` + primeTrackingRules("- **Memory**: Use `bd remember` for persistent knowledge. Do NOT use MEMORY.md files.\n") + `- **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
 - Persistence you don't need beats lost context
 - ` + profileRule + `
 
@@ -833,21 +875,10 @@ git status                  # Check changed files
 		context += memories + "\n"
 	}
 
-	context += `# 🚨 SESSION CLOSE PROTOCOL 🚨
+	context += primeSessionCloseSection(closeProtocol, closeNote, true)
 
-**CRITICAL**: Before saying "done" or "complete", you MUST run this checklist:
-
-` + "```" + `
-` + closeProtocol + `
-` + "```" + `
-
-` + closeNote + `
-
-## Core Rules
-- **Default**: Use beads for ALL task tracking (` + "`bd create`" + `, ` + "`bd ready`" + `, ` + "`bd close`" + `)
-- **Prohibited**: Do NOT use TodoWrite, TaskCreate, or markdown files for task tracking
-- **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
-- **Memory**: Use ` + "`bd remember \"insight\"`" + ` for persistent knowledge across sessions. Do NOT use MEMORY.md files — they fragment across accounts. Search with ` + "`bd memories <keyword>`" + `.
+	context += `## Core Rules
+` + primeTrackingRules("- **Memory**: Use `bd remember \"insight\"` for persistent knowledge across sessions. Do NOT use MEMORY.md files — they fragment across accounts. Search with `bd memories <keyword>`.\n") + `- **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
 - Persistence you don't need beats lost context
 - ` + profileRule + `
 - ` + gitWorkflowRule + `

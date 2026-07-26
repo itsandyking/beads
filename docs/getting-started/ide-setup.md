@@ -44,16 +44,30 @@ Commit the instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, as applicab
 
 ### Template Profiles
 
-Each integration writes one of two **profiles** that control how much content goes into the tool's instruction file (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or `.github/copilot-instructions.md`):
+Each integration writes one of three **profiles** that control how much content goes into the tool's instruction file (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or `.github/copilot-instructions.md`):
 
 | Profile | Used by | Content |
 |---------|---------|---------|
 | `full` | Factory, Mux, OpenCode | Complete command reference, issue types, priorities, workflow |
 | `minimal` | Claude Code, GitHub Copilot CLI, Gemini CLI | Pointer to `bd prime`, quick reference only (~60% smaller) |
+| `pointer` | Opt-in via `--profile` | What beads is, five commands, when to reach for it (~60% smaller again) |
 
 Hook-enabled agents use the `minimal` profile because `bd prime` injects full context at session start. AGENTS-first agents use the `full` profile because their instruction file remains the primary integration surface. Codex is skill-based instead: it uses `.agents/skills/beads/SKILL.md`, with managed `AGENTS.md` guidance telling Codex when to use the skill.
 
-**Profile precedence:** if a file already has a `full` profile section and a `minimal` profile tool installs to the same file (for example via symlinks), the `full` profile is preserved to avoid information loss.
+The `pointer` profile is for hosts that supply their own judgment and their own
+session-close discipline: it describes beads and stops, carrying no close
+protocol and no prohibitions on the host's own tools. It is never selected
+automatically — ask for it:
+
+```bash
+bd setup claude --profile pointer
+```
+
+`--profile full|minimal|pointer` overrides any integration's default. Agents
+that need the workflow spelled out — smaller local models, older agent
+versions — should stay on `minimal` or `full`.
+
+**Profile precedence:** if a file already has a richer profile section and a leaner profile tool installs to the same file (for example via symlinks), the richer profile is preserved to avoid information loss. An explicit `--profile` overrides that: naming a profile means you want that profile, and the downgrade is reported on stdout.
 
 ### Policy Profiles
 

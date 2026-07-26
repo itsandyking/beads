@@ -60,6 +60,10 @@ var YamlOnlyKeys = map[string]bool{
 	"prime.max-memories":     true,
 	"prime.max-memory-chars": true,
 
+	// Prime host-policy knobs (same reason: read at session start)
+	"prime.session-close": true,
+	"prime.core-rules":    true,
+
 	// Validation settings (bd-t7jq)
 	// Values: "warn" | "error" | "none"
 	"validation.on-create": true,
@@ -861,6 +865,18 @@ func validateYamlConfigValue(key, value string) error {
 		}
 		if n < 0 {
 			return fmt.Errorf("prime.max-memory-chars must be a non-negative integer (0 = unlimited), got %q", value)
+		}
+	case "prime.session-close":
+		switch strings.ToLower(value) {
+		case "full", "brief", "off":
+		default:
+			return fmt.Errorf("prime.session-close must be \"full\", \"brief\", or \"off\", got %q", value)
+		}
+	case "prime.core-rules":
+		switch strings.ToLower(value) {
+		case "directive", "advisory":
+		default:
+			return fmt.Errorf("prime.core-rules must be \"directive\" or \"advisory\", got %q", value)
 		}
 	}
 	return nil

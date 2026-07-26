@@ -73,8 +73,24 @@ func containsBeadsMarker(content string) bool {
 	return strings.Contains(content, "<!-- BEGIN BEADS INTEGRATION")
 }
 
-// resolveProfile returns the integration's profile, defaulting to full.
+// profileOverride is set by `bd setup --profile <name>`. Empty means "use the
+// integration's own default", which is the only behavior when the flag is absent.
+var profileOverride agents.Profile
+
+// SetProfileOverride records an explicit --profile choice. An explicit choice
+// wins over the integration default and over downgrade-stickiness: an operator
+// who names a profile is asking for that profile, not for the largest one on
+// disk. Pass "" to clear.
+func SetProfileOverride(p agents.Profile) {
+	profileOverride = p
+}
+
+// resolveProfile returns the profile to render: the explicit override if one
+// was given, else the integration's own profile, else full.
 func resolveProfile(integration agentsIntegration) agents.Profile {
+	if profileOverride != "" {
+		return profileOverride
+	}
 	if integration.profile != "" {
 		return integration.profile
 	}
@@ -133,9 +149,16 @@ func installAgents(env agentsEnv, integration agentsIntegration) error {
 	// CLAUDE.md is a symlink to AGENTS.md and both Claude and Codex target it).
 	if currentContent != "" && containsBeadsMarker(currentContent) {
 		existingProfile := existingBeadsProfile(currentContent)
-		if existingProfile == agents.ProfileFull && profile == agents.ProfileMinimal {
-			_, _ = fmt.Fprintf(env.stdout, "  ℹ File already has full profile; preserving (higher-information) content\n")
-			profile = agents.ProfileFull
+		switch {
+		case profileOverride != "":
+			// Explicit --profile: a downgrade is the point of the flag. Report it
+			// rather than silently keeping the larger body on disk.
+			if agents.ProfileRank(existingProfile) > agents.ProfileRank(profile) {
+				_, _ = fmt.Fprintf(env.stdout, "  ℹ Replacing %s profile with %s (--profile)\n", existingProfile, profile)
+			}
+		case agents.ProfileRank(existingProfile) > agents.ProfileRank(profile):
+			_, _ = fmt.Fprintf(env.stdout, "  ℹ File already has %s profile; preserving (higher-information) content\n", existingProfile)
+			profile = existingProfile
 		}
 	}
 
@@ -211,10 +234,12 @@ func checkAgents(env agentsEnv, integration agentsIntegration) error {
 	meta := agents.ParseMarker(line)
 
 	checkProfile := profile
-	if profile == agents.ProfileMinimal && existingProf == agents.ProfileFull {
-		// Accept full profile as current when a minimal integration targets the same
-		// file (typically via symlinks like CLAUDE.md -> AGENTS.md).
-		checkProfile = agents.ProfileFull
+	if profileOverride == "" && agents.ProfileRank(existingProf) > agents.ProfileRank(profile) {
+		// Accept a richer profile as current when a leaner integration targets the
+		// same file (typically via symlinks like CLAUDE.md -> AGENTS.md). An
+		// explicit --profile suppresses this: the operator wants that exact
+		// profile, so a richer one on disk is stale, not current.
+		checkProfile = existingProf
 	}
 
 	currentHash := agents.CurrentHashWithOpts(checkProfile, detectRenderOpts())

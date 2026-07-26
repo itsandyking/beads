@@ -17,7 +17,44 @@ const (
 	ProfileFull Profile = "full"
 	// ProfileMinimal is the pointer-only profile for hook-enabled agents (Claude, Gemini).
 	ProfileMinimal Profile = "minimal"
+	// ProfilePointer is the smallest profile: what bd is, the five commands that
+	// matter, and when to reach for it. It carries no session-close protocol and
+	// no prohibitions, on the assumption that the host supplies its own judgment
+	// and its own close discipline. Intended for frontier-model hosts; agents
+	// that need the workflow spelled out should stay on minimal or full.
+	ProfilePointer Profile = "pointer"
 )
+
+// ParseProfile maps a profile name to a Profile, rejecting unknown names so a
+// typo in --profile fails loudly instead of silently rendering the full body.
+func ParseProfile(name string) (Profile, error) {
+	switch Profile(strings.ToLower(strings.TrimSpace(name))) {
+	case ProfileFull:
+		return ProfileFull, nil
+	case ProfileMinimal:
+		return ProfileMinimal, nil
+	case ProfilePointer:
+		return ProfilePointer, nil
+	default:
+		return "", fmt.Errorf("unknown profile %q (want one of: full, minimal, pointer)", name)
+	}
+}
+
+// ProfileRank orders profiles by how much context they inject. Higher means
+// more content. Callers use this to avoid silently downgrading a file that
+// already carries a richer profile.
+func ProfileRank(p Profile) int {
+	switch p {
+	case ProfilePointer:
+		return 0
+	case ProfileMinimal:
+		return 1
+	case ProfileFull:
+		return 2
+	default:
+		return 2
+	}
+}
 
 // MarkerVersion is the current format version for BEGIN BEADS INTEGRATION markers.
 // Bump this when the marker format itself changes (not when template content changes).
@@ -36,6 +73,9 @@ var beadsSectionMinimal string
 
 //go:embed defaults/beads-section-codex.md
 var beadsSectionCodex string
+
+//go:embed defaults/beads-section-pointer.md
+var beadsSectionPointer string
 
 // SectionMeta holds metadata parsed from a BEGIN BEADS INTEGRATION marker.
 type SectionMeta struct {
@@ -199,6 +239,8 @@ func templateBody(profile Profile) string {
 func templateBodyWithOpts(profile Profile, opts RenderOpts) string {
 	var body string
 	switch profile {
+	case ProfilePointer:
+		body = normalizeEmbeddedMarkdown(beadsSectionPointer)
 	case ProfileMinimal:
 		body = normalizeEmbeddedMarkdown(beadsSectionMinimal)
 	default:

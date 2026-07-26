@@ -16,7 +16,7 @@ func testMemories(n int) map[string]string {
 }
 
 func TestRenderPrimeMemoriesUncappedMatchesLegacyShape(t *testing.T) {
-	out := renderPrimeMemories(testMemories(3), false, 0, 0)
+	out := renderPrimeMemories(testMemories(3), false, 0, 0, "")
 
 	if !strings.Contains(out, "## Persistent Memories (3)\n") {
 		t.Fatalf("expected legacy uncapped header, got %q", out)
@@ -32,7 +32,7 @@ func TestRenderPrimeMemoriesUncappedMatchesLegacyShape(t *testing.T) {
 }
 
 func TestRenderPrimeMemoriesCountCap(t *testing.T) {
-	out := renderPrimeMemories(testMemories(5), false, 2, 0)
+	out := renderPrimeMemories(testMemories(5), false, 2, 0, "")
 
 	if !strings.Contains(out, "## Persistent Memories (showing 2 of 5, alphabetical)\n") {
 		t.Fatalf("expected capped header, got %q", out)
@@ -54,7 +54,7 @@ func TestRenderPrimeMemoriesCountCap(t *testing.T) {
 func TestRenderPrimeMemoriesCharCapStopsAtWholeMemoryBoundary(t *testing.T) {
 	memories := testMemories(4)
 	oneEntry := len(fmt.Sprintf("### mem-00\n%s\n\n", memories["mem-00"]))
-	out := renderPrimeMemories(memories, false, 0, oneEntry+5)
+	out := renderPrimeMemories(memories, false, 0, oneEntry+5, "")
 
 	if !strings.Contains(out, "showing 1 of 4") {
 		t.Fatalf("expected exactly one memory within budget, got %q", out)
@@ -69,7 +69,7 @@ func TestRenderPrimeMemoriesCharCapStopsAtWholeMemoryBoundary(t *testing.T) {
 
 func TestRenderPrimeMemoriesCharCapAlwaysEmitsFirstMemory(t *testing.T) {
 	memories := map[string]string{"huge": strings.Repeat("x", 4096)}
-	out := renderPrimeMemories(memories, false, 0, 100)
+	out := renderPrimeMemories(memories, false, 0, 100, "")
 
 	if !strings.Contains(out, "### huge\n") {
 		t.Fatalf("an oversized first memory must still be emitted, got %q", out)
@@ -80,7 +80,7 @@ func TestRenderPrimeMemoriesCharCapAlwaysEmitsFirstMemory(t *testing.T) {
 }
 
 func TestRenderPrimeMemoriesCompactCaps(t *testing.T) {
-	out := renderPrimeMemories(testMemories(4), true, 3, 0)
+	out := renderPrimeMemories(testMemories(4), true, 3, 0, "")
 
 	if !strings.Contains(out, "## Memories (showing 3 of 4)\n") {
 		t.Fatalf("expected compact capped header, got %q", out)
@@ -94,7 +94,7 @@ func TestRenderPrimeMemoriesCompactCaps(t *testing.T) {
 }
 
 func TestRenderPrimeMemoriesCompactUncappedUnchanged(t *testing.T) {
-	out := renderPrimeMemories(testMemories(2), true, 0, 0)
+	out := renderPrimeMemories(testMemories(2), true, 0, 0, "")
 
 	if !strings.Contains(out, "\n## Memories\n") || strings.Contains(out, "showing") {
 		t.Fatalf("uncapped compact output changed shape: %q", out)
@@ -109,7 +109,7 @@ func TestRenderPrimeMemoriesBannerNamesOnlyBindingCap(t *testing.T) {
 	firstEntry := fmt.Sprintf("### mem-00\n%s\n\n", memories["mem-00"])
 	smallCharBudget := len(firstEntry) + 5 // fits exactly 1 entry
 
-	out := renderPrimeMemories(memories, false, 50, smallCharBudget)
+	out := renderPrimeMemories(memories, false, 50, smallCharBudget, "")
 
 	if !strings.Contains(out, "capped by max-memory-chars=") {
 		t.Fatalf("banner must name the char cap that fired, got %q", out)
